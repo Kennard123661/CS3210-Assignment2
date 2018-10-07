@@ -108,6 +108,8 @@ public:
 
 int main() {
     const unsigned int NUM_LINES = 3;
+    srand(static_cast<unsigned int>(time(NULL)));
+
 
     // Read inputs
     unsigned int numStations;
@@ -171,17 +173,43 @@ int main() {
         }
     }
 
-    vector<unsigned int> stationSidePopularities(numStations * 2);
-    for (unsigned int i = 0; i < numStations; i++) {
-        stationSidePopularities[i] = stationPopularities[i];
-        stationSidePopularities[i + numStations] = stationPopularities[i];
-    }
-
     vector<LineNetwork> lineNetworks;
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         lineNetworks.push_back(LineNetwork(line_stationIds[i], numStations));
     }
 
+    vector<StationSide> stationSides;
+    {
+        for (unsigned int i = 0; i < numStations; i++) {
+            stationSides.push_back(StationSide(stationPopularities[i]));
+        }
+
+        for (unsigned int i = 0; i < numStations; i++) {
+            stationSides.push_back(StationSide(stationPopularities[i]));
+        }
+    }
+
+    vector<vector<Train>> trains(NUM_LINES);
+    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
+            trains[i].push_back(Train(i, j));
+        }
+    }
+
+    vector<vector<Train *>> linkTrainQueues(links.size());
+    vector<vector<Train *>> stationTrainQueues(numStations * 2);
+    vector<vector<unsigned char>> trainAtLinks(NUM_LINES);
+    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
+            trainAtLinks[i].push_back(0);
+        }
+    }
+
+
+
+    ////////////////////////////
+    //// Begin the Good Stuff //
+    ////////////////////////////
 
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
@@ -227,7 +255,6 @@ int main() {
     for (unsigned int t = 0; t < numTicks; t++) {
         MPI_Barrier(intercomm);
     }
-
 
 
 
