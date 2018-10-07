@@ -26,6 +26,29 @@ void splitStringUsingDelimiter(string &rawString, char delimiter, vector<string>
     }
 }
 
+class LineNetwork{
+public:
+    vector<unsigned int> stationSides;
+
+    LineNetwork(vector<unsigned int> &stationIds, unsigned int numStations) {
+        for (unsigned int i = 0; i < stationIds.size(); i++) {
+            stationSides.push_back(stationIds[i]);
+        }
+
+        for (unsigned int i = 0; i < stationIds.size(); i++) {
+            stationSides.push_back(stationIds[stationIds.size() - i - 1] + numStations);
+        }
+    }
+
+    LineNetwork(const LineNetwork &_other) {
+        for (unsigned int i = 0; i < _other.stationSides.size(); i++) {
+            stationSides.push_back(_other.stationSides[i]);
+        }
+    }
+
+
+};
+
 int main() {
     const unsigned int NUM_LINES = 3;
 
@@ -65,23 +88,15 @@ int main() {
         }
     }
 
-/*    for (unsigned int i = 0; i < numStations; i++) {
-        std::cout << stationNamesToStationId[stationNames[i]] << endl;
-    }*/
-
     vector<vector<unsigned int>> line_stationIds;
     line_stationIds.resize(NUM_LINES);
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         vector<string> stationsInLine;
         getStationNames(stationsInLine);
         line_stationIds[i].resize(stationsInLine.size());
-/*        for (unsigned int j = 0; j < stationsInLine.size(); j++) {
-            cout << stationsInLine[j] << endl;
-        }*/
         for (unsigned int j = 0; j < stationsInLine.size(); j++) {
             unsigned int stationId = stationNamesToStationId[stationsInLine[j]];
             line_stationIds[i][j] = stationId;
-            // cout << line_stationIds[i][j] << endl;
         }
     }
 
@@ -139,6 +154,22 @@ int main() {
 
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, MPI_ROOT, intercomm);
     MPI_Barrier(intercomm);
+
+
+    vector<unsigned int> stationSidePopularities(numStations * 2);
+    for (unsigned int i = 0; i < numStations; i++) {
+        stationSidePopularities[i] = stationPopularities[i];
+        stationSidePopularities[i + numStations] = stationPopularities[i];
+    }
+
+    vector<LineNetwork> lineNetworks;
+    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        lineNetworks.push_back(LineNetwork(line_stationIds[i], numStations));
+    }
+
+    for (unsigned int t = 0; t < numTicks; t++) {
+        MPI_Barrier(intercomm);
+    }
 
     MPI_Finalize();
 

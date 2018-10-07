@@ -24,6 +24,11 @@ int main(void) {
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, 0, parentcomm);
     MPI_Barrier(parentcomm);
     // cout << numTicks << endl;
+
+    for (unsigned int t = 0; t < numTicks; t++) {
+        MPI_Barrier(parentcomm);
+    }
+
     MPI_Finalize();
     return EXIT_SUCCESS;
 }
