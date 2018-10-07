@@ -20,6 +20,7 @@ void getStationNames(vector<string> &stationNames) {
 
 int main() {
     const unsigned int NUM_LINES = 3;
+/*
 
     // Read inputs
     unsigned int numStations;
@@ -66,9 +67,7 @@ int main() {
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         cin >> numTrainsPerLine[i];
     }
-
-
-
+*/
 
     // Initialize the MPI environment
 
@@ -89,6 +88,13 @@ int main() {
     int name_len;
     MPI_Get_processor_name(processor_name, &name_len);
 
+    unsigned int NUM_SPAWNS = 3;
+    unsigned int np = NUM_SPAWNS;
+    int errcodes[NUM_SPAWNS];
+    MPI_Comm parentcomm, intercomm;
+
+    MPI_Comm_spawn("./simulation_process", MPI_ARGV_NULL, np, MPI_INFO_NULL, 0, MPI_COMM_WORLD, &intercomm, errcodes );
+    printf("I'm the parent.\n");
     // Print off a hello world message
     printf("Hello world from processor %s, rank %d out of %d processors\n",
            processor_name, world_rank, world_size);
