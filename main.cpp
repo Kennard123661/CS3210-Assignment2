@@ -35,6 +35,7 @@ public:
     unsigned int leastWaitTime;
     unsigned int maxWaitTime;
     unsigned int totalWaitTime;
+    float stationCountDown;
     float popularity;
 
     StationSide(float _popularity) {
@@ -43,6 +44,7 @@ public:
         leastWaitTime = UINT32_MAX;
         maxWaitTime = 0;
         totalWaitTime = 0;
+        stationCountDown = 0;
         popularity = _popularity;
     };
 
@@ -52,6 +54,7 @@ public:
         leastWaitTime = _other.leastWaitTime;
         maxWaitTime = _other.maxWaitTime;
         totalWaitTime = _other.totalWaitTime;
+        stationCountDown = _other.stationCountDown;
         popularity = _other.popularity;
     }
 
@@ -61,6 +64,7 @@ public:
         leastWaitTime = min(waitTime, leastWaitTime);
         maxWaitTime = max(waitTime, maxWaitTime);
         totalWaitTime += waitTime;
+        stationCountDown = (((rand() % 10) + 1) * popularity) - 1;
     }
 
     void left(unsigned int time) {
@@ -121,6 +125,7 @@ int main() {
     srand(static_cast<unsigned int>(time(NULL)));
     const unsigned int STATUS_NOT_PROCESSING = 0;
     const unsigned int STATUS_FINISHED_PROCESSING = 1;
+    const unsigned int STATUS_IS_PROCESSING = 2;
 
 
     // Read inputs
@@ -211,15 +216,8 @@ int main() {
         }
     }
 
-    vector<list<Train *>> linkTrainQueues(links.size());
-    vector<list<Train *>> stationSideTrainQueues(numStations * 2);
-    vector<vector<unsigned char>> trainAtLinks(NUM_LINES);
-    for (unsigned int i = 0; i < NUM_LINES; i++) {
-        for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
-            trainAtLinks[i].push_back(0);
-        }
-    }
-
+    vector<list<pair<unsigned int, unsigned int>>> linkTrainQueues(links.size());
+    vector<list<pair<unsigned int, unsigned int>>> stationSideTrainQueues(numStations * 2);
 
     ////////////////////////////
     //// Begin the Good Stuff //
@@ -276,13 +274,12 @@ int main() {
         statusBuffer[i] = 0;
     }
 
-    /// Actually processing here
+    // Actually processing here
     for (unsigned int t = 0; t < numTicks; t++) {
-        // Add 2 trains per line on every iteration.
         for (unsigned int i = 0; i < NUM_LINES; i++) {
-            for (unsigned int j = t; (j < numTrainsPerLine[i]) && (j < ((t+1) * 2)); j++) {
+            for (unsigned int j = (t*2); (j < numTrainsPerLine[i]) && (j < ((t+1) * 2)); j++) {
                 unsigned int stationSideId = lineNetworks[i].stationSides[trains[i][j].lineIndex];
-                stationSideTrainQueues[stationSideId].push_back(&trains[i][j]);
+                stationSideTrainQueues[stationSideId].push_back(pair<unsigned int, unsigned int>(i,j));
             }
         }
 
@@ -294,39 +291,68 @@ int main() {
         for (unsigned int i = 0; i < numStations * 2; i++) {
             if (stationStatus[i] == STATUS_FINISHED_PROCESSING) {
                 stationSides[i].left(t);
-                Train* trainPtr = stationSideTrainQueues[i].front();
+                pair<unsigned int, unsigned int> trainIndices = stationSideTrainQueues[i].front();
+                Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
                 unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
                 unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
 
                 if (lineNetworks[trainPtr->lineId].isTerminal(trainPtr->lineIndex)) {
-                    stationSideTrainQueues[nextStationId].push_back(trainPtr);
+                    stationSideTrainQueues[nextStationId].push_back(trainIndices);
                     stationSideTrainQueues[i].pop_front();
                 } else {
                     unsigned int currStationId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
                     unsigned int linkIdx = linksIndex[currStationId][nextStationId];
-                    linkTrainQueues[linkIdx].push_back(trainPtr);
+                    linkTrainQueues[linkIdx].push_back(trainIndices);
                     stationSideTrainQueues[i].pop_front();
+                }
+                stationStatus[i] = STATUS_NOT_PROCESSING;
+            }
+        }
+
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
+            if (statusBuffer[i] == STATUS_FINISHED_PROCESSING) {
+                pair<unsigned int, unsigned int> trainIndices = stationSideTrainQueues[i].front();
+                Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
+                unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
+                unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
+                stationSideTrainQueues[nextStationId].push_back(trainIndices);
+                linkTrainQueues[i].pop_front();
+                statusBuffer[i] = STATUS_NOT_PROCESSING;
+            }
+        }
+
+
+
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
+            if (statusBuffer[i] == STATUS_NOT_PROCESSING) {
+                if (!linkTrainQueues[i].empty()) {
+                    statusBuffer[i] = STATUS_IS_PROCESSING;
+                }
+                MPI_Send(&statusBuffer[i], 1, MPI_UINT32_T, i, 0, intercomm);
+            }
+        }
+        MPI_Barrier(intercomm);
+
+        for (unsigned int i = 0; i < numStations * 2; i++) {
+            if (stationStatus[i] == STATUS_NOT_PROCESSING) {
+                if (!stationSideTrainQueues[i].empty()) {
+                    stationSides[i].visited(t);
+                    if (stationSides[i].stationCountDown <= 0) {
+                        stationStatus[i] = STATUS_FINISHED_PROCESSING;
+                    } else {
+                        stationStatus[i] = STATUS_IS_PROCESSING;
+                    }
+                }
+            } else if (stationStatus[i] == STATUS_IS_PROCESSING) {
+                stationSides[i].stationCountDown -=  1;
+                if (stationSides[i].stationCountDown <= 0) {
+                    stationStatus[i] = STATUS_FINISHED_PROCESSING;
                 }
             }
         }
 
-        // Check from previous runs
-        // There might be a bug here
-        for (unsigned int i = 0; i < numChildProcesses; i++) {
-            if (statusBuffer[i] == STATUS_FINISHED_PROCESSING) {
-                Train* trainPtr = linkTrainQueues[i].front();
-                unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
-                unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
-                stationSideTrainQueues[nextStationId].push_back(trainPtr);
-                linkTrainQueues[i].pop_front();
-            }
-            // cout << statusBuffer[i] << " ";
-        }
-        // cout << endl;
+        
     }
-
-
-
 
     MPI_Finalize();
 
