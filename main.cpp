@@ -26,6 +26,46 @@ void splitStringUsingDelimiter(string &rawString, char delimiter, vector<string>
     }
 }
 
+class StationSide {
+public:
+    unsigned int lastVisited;
+    unsigned int numVisited;
+    unsigned int leastWaitTime;
+    unsigned int maxWaitTime;
+    unsigned int totalWaitTime;
+    float popularity;
+
+    StationSide(float _popularity) {
+        lastVisited = 0;
+        numVisited = 0;
+        leastWaitTime = UINT32_MAX;
+        maxWaitTime = 0;
+        totalWaitTime = 0;
+        popularity = _popularity;
+    };
+
+    StationSide(const StationSide &_other) {
+        lastVisited = _other.lastVisited;
+        numVisited = _other.numVisited;
+        leastWaitTime = _other.leastWaitTime;
+        maxWaitTime = _other.maxWaitTime;
+        totalWaitTime = _other.totalWaitTime;
+        popularity = _other.popularity;
+    }
+
+    void visited(unsigned int time) {
+        unsigned int waitTime = time - lastVisited;
+        numVisited++;
+        leastWaitTime = min(waitTime, leastWaitTime);
+        maxWaitTime = max(waitTime, maxWaitTime);
+        totalWaitTime += waitTime;
+    }
+
+    void left(unsigned int time) {
+        lastVisited = time;
+    }
+};
+
 class LineNetwork{
 public:
     vector<unsigned int> stationSides;
@@ -45,8 +85,25 @@ public:
             stationSides.push_back(_other.stationSides[i]);
         }
     }
+};
 
+class Train {
+public:
+    unsigned int lineId;
+    unsigned int lineIndex;
+    unsigned int trainId;
 
+    Train(unsigned int _lineId, unsigned int _trainId) {
+        lineId = _lineId;
+        lineIndex = 0;
+        trainId = _trainId;
+    }
+
+    Train(const Train &_other) {
+        lineId = _other.lineId;
+        lineIndex = _other.lineIndex;
+        trainId = _other.trainId;
+    }
 };
 
 int main() {
