@@ -2,6 +2,8 @@
 #include <openmpi/mpi.h>
 #include <vector>
 #include <sstream>
+#include <list>
+#include <mpi.h>
 
 using namespace std;
 
@@ -85,6 +87,14 @@ public:
             stationSides.push_back(_other.stationSides[i]);
         }
     }
+
+    unsigned int getNextLineIdx(unsigned int currLineIdx) {
+        return (currLineIdx + 1) % stationSides.size();
+    }
+
+    unsigned char isTerminal(unsigned int currLineIdx) {
+        return (currLineIdx == ((stationSides.size() / 2) - 1))  || (currLineIdx == (stationSides.size() - 1));
+    }
 };
 
 class Train {
@@ -109,6 +119,8 @@ public:
 int main() {
     const unsigned int NUM_LINES = 3;
     srand(static_cast<unsigned int>(time(NULL)));
+    const unsigned int STATUS_NOT_PROCESSING = 0;
+    const unsigned int STATUS_FINISHED_PROCESSING = 1;
 
 
     // Read inputs
@@ -199,8 +211,8 @@ int main() {
         }
     }
 
-    vector<vector<Train *>> linkTrainQueues(links.size());
-    vector<vector<Train *>> stationSideTrainQueues(numStations * 2);
+    vector<list<Train *>> linkTrainQueues(links.size());
+    vector<list<Train *>> stationSideTrainQueues(numStations * 2);
     vector<vector<unsigned char>> trainAtLinks(NUM_LINES);
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
@@ -254,6 +266,17 @@ int main() {
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, MPI_ROOT, intercomm);
     MPI_Barrier(intercomm);
 
+    unsigned int* stationStatus = (unsigned int*) malloc(sizeof(unsigned int) * numStations * 2);
+    for (unsigned int i = 0; i < numStations * 2; i++) {
+        stationStatus[i] = STATUS_NOT_PROCESSING;
+    }
+
+    unsigned int* statusBuffer = (unsigned int*) malloc(sizeof(unsigned int) * numChildProcesses);
+    for (unsigned int i = 0; i < numChildProcesses; i++) {
+        statusBuffer[i] = 0;
+    }
+
+    /// Actually processing here
     for (unsigned int t = 0; t < numTicks; t++) {
         // Add 2 trains per line on every iteration.
         for (unsigned int i = 0; i < NUM_LINES; i++) {
@@ -263,7 +286,43 @@ int main() {
             }
         }
 
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
+            MPI_Recv(&statusBuffer[i], 1, MPI_UINT32_T, i, 0, intercomm, NULL);
+        }
         MPI_Barrier(intercomm);
+
+        for (unsigned int i = 0; i < numStations * 2; i++) {
+            if (stationStatus[i] == STATUS_FINISHED_PROCESSING) {
+                stationSides[i].left(t);
+                Train* trainPtr = stationSideTrainQueues[i].front();
+                unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
+                unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
+
+                if (lineNetworks[trainPtr->lineId].isTerminal(trainPtr->lineIndex)) {
+                    stationSideTrainQueues[nextStationId].push_back(trainPtr);
+                    stationSideTrainQueues[i].pop_front();
+                } else {
+                    unsigned int currStationId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
+                    unsigned int linkIdx = linksIndex[currStationId][nextStationId];
+                    linkTrainQueues[linkIdx].push_back(trainPtr);
+                    stationSideTrainQueues[i].pop_front();
+                }
+            }
+        }
+
+        // Check from previous runs
+        // There might be a bug here
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
+            if (statusBuffer[i] == STATUS_FINISHED_PROCESSING) {
+                Train* trainPtr = linkTrainQueues[i].front();
+                unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
+                unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
+                stationSideTrainQueues[nextStationId].push_back(trainPtr);
+                linkTrainQueues[i].pop_front();
+            }
+            // cout << statusBuffer[i] << " ";
+        }
+        // cout << endl;
     }
 
 

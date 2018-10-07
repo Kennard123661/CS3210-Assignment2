@@ -6,6 +6,9 @@
 using namespace std;
 
 int main(void) {
+    const unsigned int STATUS_NOT_PROCESSING = 0;
+    const unsigned int STATUS_FINISHED_PROCESSING = 1;
+
     MPI_Comm parentcomm;
     unsigned int linkInfo[3] = {0};
 
@@ -22,10 +25,15 @@ int main(void) {
 
     unsigned int numTicks;
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, 0, parentcomm);
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(parentcomm);
-    // cout << numTicks << endl;
 
+    unsigned int countDown(0);
+    unsigned int status = 3;
     for (unsigned int t = 0; t < numTicks; t++) {
+        // cout << status << "c ";
+        MPI_Send(&status, 1, MPI_UINT32_T, 0, 0, parentcomm);
+        MPI_Barrier(MPI_COMM_WORLD);
         MPI_Barrier(parentcomm);
     }
 
