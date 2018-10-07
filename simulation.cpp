@@ -16,8 +16,14 @@ int main(void) {
     MPI_Comm_rank(parentcomm, &intercommRank);
 
     MPI_Recv(linkInfo, 3, MPI_UINT32_T, 0, 0, parentcomm, NULL);
-    std::cout << "child number " << world_rank << " and I received (" << linkInfo[0] << "," << linkInfo[1] << "," << linkInfo[2] << ")" << endl;
-    // cout << "I am a worker process\n";
+    // cout << "child number " << world_rank << " and I received (" << linkInfo[0] << "," << linkInfo[1] << "," << linkInfo[2] << ")" << endl;
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(parentcomm);
+
+    unsigned int numTicks;
+    MPI_Bcast(&numTicks, 1, MPI_UINT32_T, 0, parentcomm);
+    MPI_Barrier(parentcomm);
+    // cout << numTicks << endl;
     MPI_Finalize();
     return EXIT_SUCCESS;
 }

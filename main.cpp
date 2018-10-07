@@ -17,6 +17,14 @@ void getStationNames(vector<string> &stationNames) {
     }
 }
 
+void splitStringUsingDelimiter(string &rawString, char delimiter, vector<string> &result)
+{
+    stringstream ss(rawString);
+    string token;
+    while (getline(ss, token, delimiter)) {
+        result.push_back(token);
+    }
+}
 
 int main() {
     const unsigned int NUM_LINES = 3;
@@ -47,9 +55,19 @@ int main() {
     }
 
     vector<float> stationPopularities(numStations);
-    for (unsigned int i = 0; i < numStations; i++) {
-        cin >> stationPopularities[i];
+    {
+        string rawStationPopularity;
+        cin >> rawStationPopularity;
+        vector<string> stationPopularityStrings;
+        splitStringUsingDelimiter(rawStationPopularity, ',',stationPopularityStrings);
+        for (unsigned int i = 0; i < numStations; i++) {
+            stationPopularities[i] = stof(stationPopularityStrings[i]);
+        }
     }
+
+/*    for (unsigned int i = 0; i < numStations; i++) {
+        std::cout << stationNamesToStationId[stationNames[i]] << endl;
+    }*/
 
     vector<vector<unsigned int>> line_stationIds;
     line_stationIds.resize(NUM_LINES);
@@ -57,9 +75,13 @@ int main() {
         vector<string> stationsInLine;
         getStationNames(stationsInLine);
         line_stationIds[i].resize(stationsInLine.size());
+/*        for (unsigned int j = 0; j < stationsInLine.size(); j++) {
+            cout << stationsInLine[j] << endl;
+        }*/
         for (unsigned int j = 0; j < stationsInLine.size(); j++) {
             unsigned int stationId = stationNamesToStationId[stationsInLine[j]];
             line_stationIds[i][j] = stationId;
+            // cout << line_stationIds[i][j] << endl;
         }
     }
 
@@ -67,12 +89,17 @@ int main() {
     cin >> numTicks;
 
     unsigned int numTrainsPerLine[NUM_LINES];
-    for (unsigned int i = 0; i < NUM_LINES; i++) {
-        cin >> numTrainsPerLine[i];
+    {
+        string rawTrainsPerLineString;
+        cin >> rawTrainsPerLineString;
+        vector<string> trainsPerLineString;
+        splitStringUsingDelimiter(rawTrainsPerLineString, ',', trainsPerLineString);
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            numTrainsPerLine[i] = stoi(trainsPerLineString[i]);
+        }
     }
 
     // Initialize the MPI environment
-
     MPI_Init(NULL, NULL);
 
     // Get the number of processes
@@ -108,12 +135,10 @@ int main() {
         linkCostTuples[i][2] = linkCosts[links[i].first][links[i].second];
         MPI_Send(linkCostTuples[i], 3, MPI_UINT32_T, i, 0, intercomm);
     }
+    MPI_Barrier(intercomm);
 
-
-    for (unsigned int t = 0; t < numTicks; t++) {
-
-    }
-
+    MPI_Bcast(&numTicks, 1, MPI_UINT32_T, MPI_ROOT, intercomm);
+    MPI_Barrier(intercomm);
 
     MPI_Finalize();
 
