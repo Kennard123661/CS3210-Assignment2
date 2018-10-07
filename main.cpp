@@ -171,6 +171,18 @@ int main() {
         }
     }
 
+    vector<unsigned int> stationSidePopularities(numStations * 2);
+    for (unsigned int i = 0; i < numStations; i++) {
+        stationSidePopularities[i] = stationPopularities[i];
+        stationSidePopularities[i + numStations] = stationPopularities[i];
+    }
+
+    vector<LineNetwork> lineNetworks;
+    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        lineNetworks.push_back(LineNetwork(line_stationIds[i], numStations));
+    }
+
+
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
 
@@ -193,7 +205,7 @@ int main() {
     MPI_Comm intercomm;
     // Spawn link processes
     MPI_Comm_spawn("./simulation_process", MPI_ARGV_NULL, numChildProcesses, MPI_INFO_NULL, 0,
-            MPI_COMM_WORLD, &intercomm, errcodes);
+                   MPI_COMM_WORLD, &intercomm, errcodes);
 
     int intercommRank;
     MPI_Comm_rank(intercomm, &intercommRank);
@@ -212,21 +224,13 @@ int main() {
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, MPI_ROOT, intercomm);
     MPI_Barrier(intercomm);
 
-
-    vector<unsigned int> stationSidePopularities(numStations * 2);
-    for (unsigned int i = 0; i < numStations; i++) {
-        stationSidePopularities[i] = stationPopularities[i];
-        stationSidePopularities[i + numStations] = stationPopularities[i];
-    }
-
-    vector<LineNetwork> lineNetworks;
-    for (unsigned int i = 0; i < NUM_LINES; i++) {
-        lineNetworks.push_back(LineNetwork(line_stationIds[i], numStations));
-    }
-
     for (unsigned int t = 0; t < numTicks; t++) {
         MPI_Barrier(intercomm);
     }
+
+
+
+
 
     MPI_Finalize();
 
