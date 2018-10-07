@@ -123,14 +123,17 @@ int main() {
         // cout << stationNames[i] << endl;
     }
 
+    vector<vector<unsigned int>> linksIndex(numStations);
     std::vector<pair<unsigned int, unsigned int>> links;
     vector<vector<unsigned int>> linkCosts;
     linkCosts.resize(numStations);
     for (unsigned int i = 0; i < numStations; i++) {
         linkCosts[i].resize(numStations);
+        linksIndex[i].resize(numStations);
         for (unsigned int j = 0; j < numStations; j++) {
             cin >> linkCosts[i][j];
             if (linkCosts[i][j] > 0) {
+                linksIndex[i][j] = links.size();
                 links.push_back(pair<unsigned int, unsigned int>(i,j));
             }
         }
@@ -197,14 +200,13 @@ int main() {
     }
 
     vector<vector<Train *>> linkTrainQueues(links.size());
-    vector<vector<Train *>> stationTrainQueues(numStations * 2);
+    vector<vector<Train *>> stationSideTrainQueues(numStations * 2);
     vector<vector<unsigned char>> trainAtLinks(NUM_LINES);
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
             trainAtLinks[i].push_back(0);
         }
     }
-
 
 
     ////////////////////////////
@@ -253,6 +255,14 @@ int main() {
     MPI_Barrier(intercomm);
 
     for (unsigned int t = 0; t < numTicks; t++) {
+        // Add 2 trains per line on every iteration.
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            for (unsigned int j = t; (j < numTrainsPerLine[i]) && (j < ((t+1) * 2)); j++) {
+                unsigned int stationSideId = lineNetworks[i].stationSides[trains[i][j].lineIndex];
+                stationSideTrainQueues[stationSideId].push_back(&trains[i][j]);
+            }
+        }
+
         MPI_Barrier(intercomm);
     }
 
