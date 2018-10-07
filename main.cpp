@@ -20,7 +20,6 @@ void getStationNames(vector<string> &stationNames) {
 
 int main() {
     const unsigned int NUM_LINES = 3;
-/*
 
     // Read inputs
     unsigned int numStations;
@@ -34,12 +33,16 @@ int main() {
         // cout << stationNames[i] << endl;
     }
 
+    std::vector<pair<unsigned int, unsigned int>> links;
     vector<vector<unsigned int>> linkCosts;
     linkCosts.resize(numStations);
     for (unsigned int i = 0; i < numStations; i++) {
         linkCosts[i].resize(numStations);
         for (unsigned int j = 0; j < numStations; j++) {
             cin >> linkCosts[i][j];
+            if (linkCosts[i][j] > 0) {
+                links.push_back(pair<unsigned int, unsigned int>(i,j));
+            }
         }
     }
 
@@ -67,7 +70,6 @@ int main() {
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         cin >> numTrainsPerLine[i];
     }
-*/
 
     // Initialize the MPI environment
 
@@ -81,25 +83,38 @@ int main() {
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    std::cout << "Hello, World!" << std::endl;
-
     // Get the name of the processor
     char processor_name[MPI_MAX_PROCESSOR_NAME];
     int name_len;
     MPI_Get_processor_name(processor_name, &name_len);
 
-    unsigned int NUM_SPAWNS = 3;
-    unsigned int np = NUM_SPAWNS;
-    int errcodes[NUM_SPAWNS];
-    MPI_Comm parentcomm, intercomm;
+    unsigned int numChildProcesses = links.size();
+    int* errcodes = (int *) malloc(sizeof(int) * numChildProcesses);
 
-    MPI_Comm_spawn("./simulation_process", MPI_ARGV_NULL, np, MPI_INFO_NULL, 0, MPI_COMM_WORLD, &intercomm, errcodes );
-    printf("I'm the parent.\n");
-    // Print off a hello world message
-    printf("Hello world from processor %s, rank %d out of %d processors\n",
-           processor_name, world_rank, world_size);
+    MPI_Comm intercomm;
+    // Spawn link processes
+    MPI_Comm_spawn("./simulation_process", MPI_ARGV_NULL, numChildProcesses, MPI_INFO_NULL, 0,
+            MPI_COMM_WORLD, &intercomm, errcodes);
 
-    // Finalize the MPI environment.
+    int intercommRank;
+    MPI_Comm_rank(intercomm, &intercommRank);
+
+    // Initialize link processes
+    unsigned int** linkCostTuples = (unsigned int **) malloc(sizeof(unsigned int*) * links.size());
+    for (unsigned int i = 0; i < links.size(); i++) {
+        linkCostTuples[i] = (unsigned int*) malloc(sizeof(unsigned int) * 3);
+        linkCostTuples[i][0] = links[i].first;
+        linkCostTuples[i][1] = links[i].second;
+        linkCostTuples[i][2] = linkCosts[links[i].first][links[i].second];
+        MPI_Send(linkCostTuples[i], 3, MPI_UINT32_T, i, 0, intercomm);
+    }
+
+
+    for (unsigned int t = 0; t < numTicks; t++) {
+
+    }
+
+
     MPI_Finalize();
 
     return 0;
