@@ -65,6 +65,7 @@ public:
         maxWaitTime = max(waitTime, maxWaitTime);
         totalWaitTime += waitTime;
         stationCountDown = (((rand() % 10) + 1) * popularity) - 1;
+        // cout << "countdown" << stationCountDown << endl;
     }
 
     void left(unsigned int time) {
@@ -107,9 +108,9 @@ public:
     unsigned int lineIndex;
     unsigned int trainId;
 
-    Train(unsigned int _lineId, unsigned int _trainId) {
+    Train(unsigned int _lineId, unsigned int _trainId, unsigned int _lineIndex) {
         lineId = _lineId;
-        lineIndex = 0;
+        lineIndex = _lineIndex;
         trainId = _trainId;
     }
 
@@ -127,6 +128,9 @@ int main() {
     const unsigned int STATUS_FINISHED_PROCESSING = 1;
     const unsigned int STATUS_IS_PROCESSING = 2;
 
+    const char linePrefixes[3] = {'g', 'y', 'b'};
+    const char* linkFormat = "%c%u-s%u->s%u";
+    const char* stationFormat = "%c%u-s%u";
 
     // Read inputs
     unsigned int numStations;
@@ -212,9 +216,20 @@ int main() {
     vector<vector<Train>> trains(NUM_LINES);
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
-            trains[i].push_back(Train(i, j));
+            if (j % 2 == 0) {
+                trains[i].push_back(Train(i, j, 0));
+            } else {
+                trains[i].push_back(Train(i, j, line_stationIds[i].size()));
+            }
         }
     }
+
+/*    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        for (unsigned int j = 0; j < lineNetworks[i].stationSides.size(); j++) {
+            std::cout << lineNetworks[i].stationSides[j] << " ";
+        }
+        cout << endl;
+    }*/
 
     vector<list<pair<unsigned int, unsigned int>>> linkTrainQueues(links.size());
     vector<list<pair<unsigned int, unsigned int>>> stationSideTrainQueues(numStations * 2);
@@ -274,8 +289,17 @@ int main() {
         statusBuffer[i] = 0;
     }
 
+    vector<vector<unsigned char>> isTrainAtLink(NUM_LINES);
+    for (unsigned int i = 0; i < NUM_LINES; i++) {
+        for (unsigned int j = 0; j < numTrainsPerLine[i]; j++) {
+            isTrainAtLink[i].push_back(0);
+        }
+    }
+
     // Actually processing here
     for (unsigned int t = 0; t < numTicks; t++) {
+
+        // Get new trains and process them to the side that they belong to.
         for (unsigned int i = 0; i < NUM_LINES; i++) {
             for (unsigned int j = (t*2); (j < numTrainsPerLine[i]) && (j < ((t+1) * 2)); j++) {
                 unsigned int stationSideId = lineNetworks[i].stationSides[trains[i][j].lineIndex];
@@ -283,25 +307,36 @@ int main() {
             }
         }
 
+        // Get status of the links
         for (unsigned int i = 0; i < numChildProcesses; i++) {
             MPI_Recv(&statusBuffer[i], 1, MPI_UINT32_T, i, 0, intercomm, NULL);
         }
         MPI_Barrier(intercomm);
 
+        // Process stations that have finished processing
         for (unsigned int i = 0; i < numStations * 2; i++) {
             if (stationStatus[i] == STATUS_FINISHED_PROCESSING) {
                 stationSides[i].left(t);
                 pair<unsigned int, unsigned int> trainIndices = stationSideTrainQueues[i].front();
                 Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
                 unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
-                unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
+                unsigned int nextStationSideId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
 
                 if (lineNetworks[trainPtr->lineId].isTerminal(trainPtr->lineIndex)) {
-                    stationSideTrainQueues[nextStationId].push_back(trainIndices);
+                    stationSideTrainQueues[nextStationSideId].push_back(trainIndices);
                     stationSideTrainQueues[i].pop_front();
+                    trainPtr->lineIndex = nextIdx;
                 } else {
-                    unsigned int currStationId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
-                    unsigned int linkIdx = linksIndex[currStationId][nextStationId];
+                    unsigned int currStationSideId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
+                    if (currStationSideId >= numStations) {
+                        currStationSideId -= numStations;
+                    }
+
+                    if (nextStationSideId >= numStations) {
+                        nextStationSideId -= numStations;
+                    }
+
+                    unsigned int linkIdx = linksIndex[currStationSideId][nextStationSideId];
                     linkTrainQueues[linkIdx].push_back(trainIndices);
                     stationSideTrainQueues[i].pop_front();
                 }
@@ -309,29 +344,41 @@ int main() {
             }
         }
 
+
+        // Release train that had previously occupied a link.
         for (unsigned int i = 0; i < numChildProcesses; i++) {
             if (statusBuffer[i] == STATUS_FINISHED_PROCESSING) {
-                pair<unsigned int, unsigned int> trainIndices = stationSideTrainQueues[i].front();
+                pair<unsigned int, unsigned int> trainIndices = linkTrainQueues[i].front();
+                isTrainAtLink[trainIndices.first][trainIndices.second] = 0;
+
                 Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
+                unsigned int tempStationId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
+                // cout << "trains " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << (tempStationId >= numStations) ? tempStationId - numStations : tempStationId;
+
                 unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
                 unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
                 stationSideTrainQueues[nextStationId].push_back(trainIndices);
                 linkTrainQueues[i].pop_front();
                 statusBuffer[i] = STATUS_NOT_PROCESSING;
+                trainPtr->lineIndex = nextIdx;
+                // cout << "train " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << (nextStationId >= numStations) ? nextStationId - numStations : nextStationId;
             }
         }
-
 
 
         for (unsigned int i = 0; i < numChildProcesses; i++) {
             if (statusBuffer[i] == STATUS_NOT_PROCESSING) {
                 if (!linkTrainQueues[i].empty()) {
                     statusBuffer[i] = STATUS_IS_PROCESSING;
+                    pair<unsigned int, unsigned int> trainIndices = linkTrainQueues[i].front();
+                    isTrainAtLink[trainIndices.first][trainIndices.second] = 1;
+                    // cout << "train " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << links[i].first << "," << links[i].second <<  endl;
                 }
                 MPI_Send(&statusBuffer[i], 1, MPI_UINT32_T, i, 0, intercomm);
             }
         }
         MPI_Barrier(intercomm);
+
 
         for (unsigned int i = 0; i < numStations * 2; i++) {
             if (stationStatus[i] == STATUS_NOT_PROCESSING) {
@@ -342,19 +389,48 @@ int main() {
                     } else {
                         stationStatus[i] = STATUS_IS_PROCESSING;
                     }
+                    // cout << "countDown " << ((i >= numStations) ? i - numStations : i) << " " << stationSides[i].stationCountDown << endl;
                 }
             } else if (stationStatus[i] == STATUS_IS_PROCESSING) {
-                stationSides[i].stationCountDown -=  1;
+                stationSides[i].stationCountDown -= 1;
                 if (stationSides[i].stationCountDown <= 0) {
                     stationStatus[i] = STATUS_FINISHED_PROCESSING;
                 }
             }
         }
 
-        
-    }
+        printf("%u: ", t);
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            for (unsigned int  j = 0; (j < numTrainsPerLine[i]) && (j < 2 * (t+1)); j++) {
+                Train train = trains[i][j];
+                unsigned int stationId = lineNetworks[i].stationSides[train.lineIndex];
+                if (stationId >= numStations) {
+                    stationId -= numStations;
+                }
 
+                if (isTrainAtLink[i][j]) {
+                    unsigned int nextLineIndex = lineNetworks[i].getNextLineIdx(train.lineIndex);
+                    unsigned int nextStationId = lineNetworks[i].stationSides[nextLineIndex];
+                    if (nextStationId >= numStations) {
+                        nextStationId -= numStations;
+                    }
+                    printf(linkFormat, linePrefixes[i], j, stationId, nextStationId);
+                } else {
+                    printf(stationFormat, linePrefixes[i], j, stationId);
+                }
+
+                if ((i != (NUM_LINES - 1)) || (j != (numTrainsPerLine[i] - 1))) {
+                    printf(", ");
+                }
+            }
+        }
+        printf("\n");
+    }
     MPI_Finalize();
 
-    return 0;
+    // Final Update
+    
+
+
+    return EXIT_SUCCESS;
 }

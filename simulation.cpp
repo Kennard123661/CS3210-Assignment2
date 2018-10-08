@@ -24,6 +24,8 @@ int main(void) {
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(parentcomm);
 
+    // cout << linkInfo[0] << "," << linkInfo[1] << "," << linkInfo[2] << endl;
+
     unsigned int numTicks;
     MPI_Bcast(&numTicks, 1, MPI_UINT32_T, 0, parentcomm);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -49,6 +51,7 @@ int main(void) {
             status = STATUS_FINISHED_PROCESSING;
         }
         MPI_Barrier(parentcomm);
+        // cout << "children at " << t << endl;
     }
 
     MPI_Finalize();
