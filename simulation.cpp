@@ -51,7 +51,6 @@ int main(void) {
             status = STATUS_FINISHED_PROCESSING;
         }
         MPI_Barrier(parentcomm);
-        // cout << "children at " << t << endl;
     }
 
     MPI_Finalize();

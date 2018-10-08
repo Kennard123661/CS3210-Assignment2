@@ -4,8 +4,11 @@
 #include <sstream>
 #include <list>
 #include <mpi.h>
+#include <iomanip>
 
 using namespace std;
+
+const unsigned int NUM_LINES = 3;
 
 void getStationNames(vector<string> &stationNames) {
     string rawStationNames;
@@ -30,47 +33,51 @@ void splitStringUsingDelimiter(string &rawString, char delimiter, vector<string>
 
 class StationSide {
 public:
-    unsigned int lastVisited;
-    unsigned int numVisited;
-    unsigned int minWaitTime;
-    unsigned int maxWaitTime;
-    unsigned int totalWaitTime;
+    unsigned int lastVisited[NUM_LINES];
+    unsigned int numVisited[NUM_LINES];
+    unsigned int minWaitTime[NUM_LINES];
+    unsigned int maxWaitTime[NUM_LINES];
+    unsigned int totalWaitTime[NUM_LINES];
     float stationCountDown;
     float popularity;
 
     StationSide(float _popularity) {
-        lastVisited = 0;
-        numVisited = 0;
-        minWaitTime = UINT32_MAX;
-        maxWaitTime = 0;
-        totalWaitTime = 0;
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            lastVisited[i] = 0;
+            numVisited[i] = 0;
+            minWaitTime[i] = UINT32_MAX;
+            maxWaitTime[i] = 0;
+            totalWaitTime[i] = 0;
+        }
+
         stationCountDown = 0;
         popularity = _popularity;
     };
 
     StationSide(const StationSide &_other) {
-        lastVisited = _other.lastVisited;
-        numVisited = _other.numVisited;
-        minWaitTime = _other.minWaitTime;
-        maxWaitTime = _other.maxWaitTime;
-        totalWaitTime = _other.totalWaitTime;
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            lastVisited[i] = _other.lastVisited[i];
+            numVisited[i] = _other.numVisited[i];
+            minWaitTime[i] = _other.minWaitTime[i];
+            maxWaitTime[i] = _other.maxWaitTime[i];
+            totalWaitTime[i] = _other.totalWaitTime[i];
+        }
+
         stationCountDown = _other.stationCountDown;
         popularity = _other.popularity;
     }
 
-    void visited(unsigned int time) {
-        unsigned int waitTime = time - lastVisited;
-        numVisited++;
-        minWaitTime = waitTime < minWaitTime ? waitTime : minWaitTime;
-        maxWaitTime = waitTime > maxWaitTime ? waitTime : maxWaitTime;
-        totalWaitTime += waitTime;
-        cout << "min " << minWaitTime << "max " << maxWaitTime;
+    void visited(unsigned int time, unsigned int lineId) {
+        unsigned int waitTime = time - lastVisited[lineId];
+        numVisited[lineId]++;
+        minWaitTime[lineId] = waitTime < minWaitTime[lineId] ? waitTime : minWaitTime[lineId];
+        maxWaitTime[lineId] = waitTime > maxWaitTime[lineId] ? waitTime : maxWaitTime[lineId];
+        totalWaitTime[lineId] += waitTime;
         stationCountDown = (((rand() % 10) + 1) * popularity) - 1;
-        // cout << "countdown" << stationCountDown << endl;
     }
 
-    void left(unsigned int time) {
-        lastVisited = time;
+    void left(unsigned int time, unsigned int lineId) {
+        lastVisited[lineId] = time;
     }
 };
 
@@ -123,7 +130,6 @@ public:
 };
 
 int main() {
-    const unsigned int NUM_LINES = 3;
     srand(static_cast<unsigned int>(time(NULL)));
     const unsigned int STATUS_NOT_PROCESSING = 0;
     const unsigned int STATUS_FINISHED_PROCESSING = 1;
@@ -143,7 +149,6 @@ int main() {
     map<string, unsigned int> stationNamesToStationId;
     for (unsigned int i = 0; i < numStations; i++) {
         stationNamesToStationId.insert(pair<string, unsigned int>(stationNames[i], i));
-        // cout << stationNames[i] << endl;
     }
 
     vector<vector<unsigned int>> linksIndex(numStations);
@@ -311,11 +316,11 @@ int main() {
         // Process stations that are ready to release their trains
         for (unsigned int i = 0; i < numStations * 2; i++) {
             if (stationStatus[i] == STATUS_FINISHED_PROCESSING) {
-                stationSides[i].left(t);
                 pair<unsigned int, unsigned int> trainIndices = stationSideTrainQueues[i].front();
                 Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
                 unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
                 unsigned int nextStationSideId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
+                stationSides[i].left(t, trainIndices.first);
 
                 if (lineNetworks[trainPtr->lineId].isTerminal(trainPtr->lineIndex)) {
                     stationSideTrainQueues[nextStationSideId].push_back(trainIndices);
@@ -348,7 +353,6 @@ int main() {
 
                 Train* trainPtr = &trains[trainIndices.first][trainIndices.second];
                 unsigned int tempStationId = lineNetworks[trainPtr->lineId].stationSides[trainPtr->lineIndex];
-                // cout << "trains " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << (tempStationId >= numStations) ? tempStationId - numStations : tempStationId;
 
                 unsigned int nextIdx = lineNetworks[trainPtr->lineId].getNextLineIdx(trainPtr->lineIndex);
                 unsigned int nextStationId = lineNetworks[trainPtr->lineId].stationSides[nextIdx];
@@ -356,7 +360,6 @@ int main() {
                 linkTrainQueues[i].pop_front();
                 statusBuffer[i] = STATUS_NOT_PROCESSING;
                 trainPtr->lineIndex = nextIdx;
-                // cout << "train " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << (nextStationId >= numStations) ? nextStationId - numStations : nextStationId;
             }
         }
 
@@ -367,7 +370,6 @@ int main() {
                     statusBuffer[i] = STATUS_IS_PROCESSING;
                     pair<unsigned int, unsigned int> trainIndices = linkTrainQueues[i].front();
                     isTrainAtLink[trainIndices.first][trainIndices.second] = 1;
-                    // cout << "train " << linePrefixes[trainIndices.first] << trainIndices.second << " at " << links[i].first << "," << links[i].second <<  endl;
                 }
                 MPI_Send(&statusBuffer[i], 1, MPI_UINT32_T, i, 0, intercomm);
             }
@@ -378,13 +380,12 @@ int main() {
         for (unsigned int i = 0; i < numStations * 2; i++) {
             if (stationStatus[i] == STATUS_NOT_PROCESSING) {
                 if (!stationSideTrainQueues[i].empty()) {
-                    stationSides[i].visited(t);
+                    stationSides[i].visited(t, stationSideTrainQueues[i].front().first);
                     if (stationSides[i].stationCountDown <= 0) {
                         stationStatus[i] = STATUS_FINISHED_PROCESSING;
                     } else {
                         stationStatus[i] = STATUS_IS_PROCESSING;
                     }
-                    // cout << "countDown " << ((i >= numStations) ? i - numStations : i) << " " << stationSides[i].stationCountDown << endl;
                 }
             } else if (stationStatus[i] == STATUS_IS_PROCESSING) {
                 stationSides[i].stationCountDown -= 1;
@@ -423,6 +424,7 @@ int main() {
     }
     MPI_Finalize();
 
+    cout.setf(ios::fixed);
     cout << "\nAverage Wait Times:" << endl;
     // Final Update
     for (unsigned int i = 0; i < NUM_LINES; i++) {
@@ -432,19 +434,19 @@ int main() {
         for (unsigned int j = 0; j < lineNetworks[i].stationSides.size(); j++) {
             unsigned int stationSideId = lineNetworks[i].stationSides[j];
             StationSide* stationSidePtr = &stationSides[stationSideId];
-            if (stationSidePtr->numVisited > 0) {
-                avgMin += stationSidePtr->minWaitTime;
-                avgMax += stationSidePtr->maxWaitTime;
-                avgAvg += stationSidePtr->totalWaitTime;
+            if (stationSidePtr->numVisited[i] > 0) {
+                avgMin += stationSidePtr->minWaitTime[i];
+                avgMax += stationSidePtr->maxWaitTime[i];
+                avgAvg += stationSidePtr->totalWaitTime[i];
                 count++;
-                numTrains += stationSidePtr->numVisited;
+                numTrains += stationSidePtr->numVisited[i];
             }
         }
         avgMin /= count;
         avgMax /= count;
         avgAvg /= numTrains;
         cout << finalLinePrefixes[i] << ": " << numTrainsPerLine[i] << " trains -> "
-                << avgAvg << ", " << avgMin << ", " << avgMax << endl;
+                << setprecision(1) << avgAvg << ", " << setprecision(1) << avgMin << ", " << setprecision(1) << avgMax << endl;
     }
 
 
