@@ -51,14 +51,24 @@ int main() {
         stationNamesToStationId.insert(pair<string, unsigned int>(stationNames[i], i));
     }
 
-    vector<vector<unsigned int>> linkCosts;
-    linkCosts.resize(numStations);
+    unsigned int** linkCosts = (unsigned int**) malloc(sizeof(unsigned int*) * numStations);
     for (unsigned int i = 0; i < numStations; i++) {
-        linkCosts[i].resize(numStations);
+        linkCosts[i] = (unsigned int*) calloc(numStations, sizeof(unsigned int));
         for (unsigned int j = 0; j < numStations; j++) {
             cin >> linkCosts[i][j];
         }
     }
+
+/*
+
+    vector<vector<unsigned int>> linkCosts;
+    for (unsigned int i = 0; i < numStations; i++) {
+        linkCosts.push_back(vector<unsigned int>(numStations));
+        for (unsigned int j = 0; j < numStations; j++) {
+            cin >> linkCosts[i][j];
+        }
+    }
+*/
 
     vector<float> stationPopularities(numStations);
     {
@@ -109,31 +119,47 @@ int main() {
         stationSideNextNode[i] = (unsigned int*) malloc(sizeof(unsigned int) * NUM_LINES);
     }
 
+    int** beforeNodeInfo = (int **) malloc(sizeof(int*) * numStationSides);
+    for (unsigned int i = 0; i < numStationSides; i++) {
+        beforeNodeInfo[i] = (int*) malloc(sizeof(int) * NUM_LINES);
+    }
+
     vector<vector<unsigned int>> linksIndex(numStations);
     for (unsigned int i = 0; i < numStations; i++) {
         linksIndex[i].resize(numStations);
     }
 
     std::vector<pair<unsigned int, unsigned int>> links;
-    for (unsigned int i = 0; i < NUM_LINES; i++) {
-        // Set next links for trains station
-        for (unsigned int j = 0; j < (line_stationIds[i].size() - 1); j++) {
-            unsigned int curr = line_stationIds[i][j];
-            unsigned int next = line_stationIds[i][j + 1];
-            linksIndex[curr][next] = links.size();
-            links.push_back(pair<unsigned int, unsigned int>(curr, next));
-            linksIndex[next][curr] = links.size();
-            links.push_back(pair<unsigned int, unsigned int>(next + numStations, curr + numStations));
+    {
+        unsigned int count(0);
+        for (unsigned int i = 0; i < NUM_LINES; i++) {
+            // Set next links for trains station
+            for (unsigned int j = 0; j < (line_stationIds[i].size() - 1); j++) {
+                unsigned int curr = line_stationIds[i][j];
+                unsigned int next = line_stationIds[i][j + 1];
 
-            stationSideNextNode[curr][i] = linksIndex[curr][next] + numStationSides;
-            stationSideNextNode[next + numStations][i] = linksIndex[next][curr] + numStationSides;
+                linksIndex[curr][next] = links.size();
+                links.push_back(pair<unsigned int, unsigned int>(curr, next));
+                linksIndex[next][curr] = links.size();
+                links.push_back(pair<unsigned int, unsigned int>(next + numStations, curr + numStations));
+
+                beforeNodeInfo[next][i] = linksIndex[curr][next] + numStationSides;
+                beforeNodeInfo[curr + numStations][i] = linksIndex[next][curr] + numStationSides;
+
+                stationSideNextNode[curr][i] = linksIndex[curr][next] + numStationSides;
+                stationSideNextNode[next + numStations][i] = linksIndex[next][curr] + numStationSides;
+            }
+
+            // Set for terminal stations
+            unsigned int startStationId = line_stationIds[i][0];
+            unsigned int endStationId = line_stationIds[i][line_stationIds[i].size() - 1];
+
+            beforeNodeInfo[endStationId + numStations][i] = endStationId;
+            beforeNodeInfo[startStationId][i] = startStationId + numStations;
+
+            stationSideNextNode[startStationId + numStations][i] = startStationId;
+            stationSideNextNode[endStationId][i] = endStationId + numStations;
         }
-
-        // Set for terminal stations
-        unsigned int startStationId = line_stationIds[i][0];
-        unsigned int endStationId = line_stationIds[i][line_stationIds[i].size() - 1];
-        stationSideNextNode[startStationId + numStations][i] = startStationId;
-        stationSideNextNode[endStationId][i] = endStationId + numStations;
     }
 
     // Initialize the MPI environment
@@ -150,22 +176,28 @@ int main() {
     MPI_Bcast(&numStationSides, 1, MPI_UINT32_T, MPI_ROOT, centralComm);
 
     // Send the node info for the child processes
-    unsigned int** nodeInfo = (unsigned int **) malloc(sizeof(unsigned int*) * numChildProcesses);
+    int** nodeInfo = (int **) malloc(sizeof(int*) * numChildProcesses);
     for (unsigned int i = 0; i < numChildProcesses; i++) {
         bool isLink = i >= numStationSides;
-        nodeInfo[i] = (unsigned int*) malloc(sizeof(unsigned int) * 3);
+        nodeInfo[i] = (int*) malloc(sizeof(int) * NUM_LINES);
 
         if (isLink) {
             nodeInfo[i][0] = links[i - numStationSides].first;
             nodeInfo[i][1] = links[i - numStationSides].second;
-            nodeInfo[i][2] = linkCosts[links[i - numStationSides].first][links[i - numStationSides].second];
+
+            unsigned int startId = nodeInfo[i][0] - ((nodeInfo[i][0] >= numStations) ? numStations : 0);
+            unsigned int endId = nodeInfo[i][1] - ((nodeInfo[i][1] >= numStations) ? numStations : 0);
+
+            nodeInfo[i][2] = linkCosts[startId][endId];
         } else {
             for (unsigned int j = 0; j < NUM_LINES; j++) {
                 nodeInfo[i][j] = stationSideNextNode[i][j];
             }
         }
-        MPI_Send(nodeInfo[i], 3, MPI_UINT32_T, i, 0, centralComm);
-        free(nodeInfo[i]);
+        MPI_Send(nodeInfo[i], 3, MPI_INT, i, 0, centralComm);
+    }
+    for (unsigned int i = 0; i < numStationSides; i++) {
+        MPI_Send(beforeNodeInfo[i], 3, MPI_INT, i, 0, centralComm);
     }
 
     // Send the number  of ticks to the child process
@@ -176,6 +208,7 @@ int main() {
     }
     free(nodeInfo);
 
+/*
     // Send station popularities
     {
         float* stationSidePopularities = (float *) malloc(sizeof(float) * numStationSides);
@@ -220,7 +253,6 @@ int main() {
             MPI_Send(&totalNumInitialTrains[i], 1, MPI_UINT32_T, i, 0, centralComm);
         }
 
-
         // The trains that the initial stations should receive represented as (line_id, train_id)
         vector<vector<unsigned int>> initialTrains(numStationSides);
         for (unsigned int i = 0; i < numStationSides; i++) {
@@ -250,6 +282,7 @@ int main() {
         // Set the initial trains to send
         unsigned int** initialTrainsToSend = (unsigned int**) malloc(sizeof(unsigned int) * numStationSides);
         for (unsigned int i = 0; i < numStationSides; i++) {
+
             if (totalNumInitialTrains[i] <= 0) {
                 continue;
             }
@@ -273,14 +306,14 @@ int main() {
         // Clean Up Memory //
         ////////////////////
         for (unsigned int i = 0; i < numStationSides; i++) {
+            if (totalNumInitialTrains[i] <= 0) {
+                continue;
+            }
             free(initialTrainsToSend[i]);
         }
         free(initialTrainsToSend);
         initialTrainsToSend = NULL;
 
-        for (unsigned int i = 0; i < numStationSides; i++) {
-            free(initialStationSideNumTrains[i]);
-        }
         free(initialStationSideNumTrains);
         initialStationSideNumTrains = NULL;
     }
@@ -351,17 +384,17 @@ int main() {
     const unsigned int MAX_WAIT_TIME_IDX = 2;
     const unsigned int NUM_TRAINS_VISITED_IDX = 3;
 
-    unsigned int offset = NUM_WAIT_TIME_INFO * NUM_LINES;
+    unsigned int offset = NUM_WAIT_TIME_INFO * NUM_LINES;*/
 
-
+/*
     unsigned int* waitTimes = (unsigned int*) malloc(sizeof(unsigned int) * numStationSides * offset);
     for (unsigned int i = 0; i < numStationSides; i++) {
         MPI_Recv(&waitTimes[i * offset], offset, MPI_UINT32_T, i, 0, centralComm, NULL);
     }
-    MPI_Barrier(centralComm);
+    MPI_Barrier(centralComm); */
     MPI_Finalize();
-    free(errcodes);
-
+    // free(errcodes);
+/*
     cout.setf(ios::fixed);
     cout << "\nAverage Wait Times:" << endl;
 
@@ -400,7 +433,7 @@ int main() {
              << setprecision(1) << avgAvg << ", " << setprecision(1) << avgMin << ", "
              << setprecision(1) << avgMax << endl;
     }
-    free(waitTimes);
+    free(waitTimes);*/
 
     return EXIT_SUCCESS;
 }
