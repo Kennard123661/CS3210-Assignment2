@@ -114,14 +114,20 @@ int main() {
 
     // Encode the next node that the station side should pass the train to, depending on the line that the
     // train belongs to
-    unsigned int** stationSideNextNode = (unsigned int **)malloc(sizeof(unsigned int*) * numStationSides);
+    int** stationSideNextNode = (int **)malloc(sizeof(int*) * numStationSides);
     for (unsigned int i = 0; i < numStationSides; i++) {
-        stationSideNextNode[i] = (unsigned int*) malloc(sizeof(unsigned int) * NUM_LINES);
+        stationSideNextNode[i] = (int*) malloc(sizeof(int) * NUM_LINES);
+        for (unsigned int j = 0; j < NUM_LINES; j++) {
+            stationSideNextNode[i][j] = -1;
+        }
     }
 
     int** beforeNodeInfo = (int **) malloc(sizeof(int*) * numStationSides);
     for (unsigned int i = 0; i < numStationSides; i++) {
         beforeNodeInfo[i] = (int*) malloc(sizeof(int) * NUM_LINES);
+        for (unsigned int j = 0; j < NUM_LINES; j++) {
+            beforeNodeInfo[i][j] = -1;
+        }
     }
 
     vector<vector<unsigned int>> linksIndex(numStations);
@@ -138,16 +144,25 @@ int main() {
                 unsigned int curr = line_stationIds[i][j];
                 unsigned int next = line_stationIds[i][j + 1];
 
-                linksIndex[curr][next] = links.size();
-                links.push_back(pair<unsigned int, unsigned int>(curr, next));
-                linksIndex[next][curr] = links.size();
-                links.push_back(pair<unsigned int, unsigned int>(next + numStations, curr + numStations));
+                bool previouslyEnter = false;
+                for (unsigned int k = 0; k < links.size(); k++) {
+                    if ((links[k].first == curr) && links[k].second == next) {
+                        previouslyEnter = true;
+                    }
+                }
 
-                beforeNodeInfo[next][i] = linksIndex[curr][next] + numStationSides;
-                beforeNodeInfo[curr + numStations][i] = linksIndex[next][curr] + numStationSides;
+                if (!previouslyEnter) {
+                    linksIndex[curr][next] = links.size();
+                    links.push_back(pair<unsigned int, unsigned int>(curr, next));
+                    linksIndex[next][curr] = links.size();
+                    links.push_back(pair<unsigned int, unsigned int>(next + numStations, curr + numStations));
 
-                stationSideNextNode[curr][i] = linksIndex[curr][next] + numStationSides;
-                stationSideNextNode[next + numStations][i] = linksIndex[next][curr] + numStationSides;
+                    stationSideNextNode[curr][i] = linksIndex[curr][next] + numStationSides;
+                    stationSideNextNode[next + numStations][i] = linksIndex[next][curr] + numStationSides;
+
+                    beforeNodeInfo[next][i] = linksIndex[curr][next] + numStationSides;
+                    beforeNodeInfo[curr + numStations][i] = linksIndex[next][curr] + numStationSides;
+                }
             }
 
             // Set for terminal stations
@@ -161,6 +176,18 @@ int main() {
             stationSideNextNode[endStationId][i] = endStationId + numStations;
         }
     }
+
+/*    for (unsigned int i = 0; i < numStationSides; i++) {
+        for (unsigned int j = 0; j < NUM_LINES; j++) {
+            cout << beforeNodeInfo[i][j] << " ";
+        }
+        cout << endl;
+    }
+
+    cout << "linl" << endl;
+    for (unsigned int i = 0; i < links.size(); i++) {
+        cout << links[i].first << "," << links[i].second <<  " " << i + numStationSides  << endl;
+    }*/
 
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
@@ -208,7 +235,6 @@ int main() {
     }
     free(nodeInfo);
 
-/*
     // Send station popularities
     {
         float* stationSidePopularities = (float *) malloc(sizeof(float) * numStationSides);
@@ -292,11 +318,23 @@ int main() {
                 initialTrainsToSend[i][j] = initialTrains[i][j];
             }
         }
+        for (unsigned int i = 0; i < numStationSides; i++) {
+            if (totalNumInitialTrains[i] <= 0) {
+                continue;
+            }
+
+            cout << "station" << i << " " << totalNumInitialTrains[i] << endl;
+            for (unsigned int j = 0; j < (totalNumInitialTrains[i] * 2); j++) {
+                cout << initialTrainsToSend[i][j] << " ";
+            }
+            cout << endl;
+        }
 
         for (unsigned int i = 0; i < numStationSides; i++) {
             if (totalNumInitialTrains[i] <= 0) {
                 continue;
             }
+
             MPI_Send(initialTrainsToSend[i], initialTrains[i].size(), MPI_UINT32_T, i, 0, centralComm);
         }
         MPI_Barrier(centralComm);
@@ -318,7 +356,7 @@ int main() {
         initialStationSideNumTrains = NULL;
     }
 
-
+    /*
     ///////////////////////////
     // Receive Updates here //
     /////////////////////////
