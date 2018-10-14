@@ -67,7 +67,7 @@ int main(void) {
 
         if (numTrainsFromCentral > 0) {
             unsigned numTrainDataFromCentral = numTrainsFromCentral * 2;
-            cout << numTrainDataFromCentral << " " << worldRank << endl;
+            // cout << numTrainDataFromCentral << " " << worldRank << endl;
             unsigned int *trainsFromCentral = (unsigned int *) malloc(sizeof(unsigned int) * numTrainDataFromCentral);
             MPI_Recv(trainsFromCentral, numTrainsFromCentral * 2, MPI_UINT32_T, 0, 0, centralComm, NULL);
 
@@ -94,7 +94,7 @@ int main(void) {
     float countDown(0);
     unsigned int processedTrainInfo[2];
     unsigned int receivedTrainInfo[6];
-    unsigned int isProcessing = STATUS_NOT_PROCESSING;
+    bool isProcessing = false;
 
     unsigned int totalWaitTime[NUM_LINES] = {0};
     unsigned int minWaitTime[NUM_LINES] = {0};
@@ -106,7 +106,8 @@ int main(void) {
         unsigned char hasTrainToSend(0);
 
         // if has previously finished processing
-        if (isProcessing == STATUS_IS_PROCESSING && countDown <= 0) {
+        if (isProcessing == true && countDown <= 0) {
+            // cout << "released" << endl;
             isProcessing = STATUS_NOT_PROCESSING;
             pair<unsigned int, unsigned int> processedTrain = beforeProcessing.front();
             processedTrainInfo[0] = processedTrain.first;
@@ -171,6 +172,7 @@ int main(void) {
             unsigned char hasTrainToReceive(0);
             MPI_Recv(&hasTrainToReceive, 1, MPI_UNSIGNED_CHAR, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, NULL);
             if (hasTrainToReceive) {
+                // cout << "hasTransferred" << endl;
                 MPI_Recv(receivedTrainInfo, 2, MPI_INT32_T, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, NULL);
                 beforeProcessing.push_back(
                         pair<unsigned int, unsigned int>(receivedTrainInfo[0], receivedTrainInfo[1]));
@@ -202,7 +204,7 @@ int main(void) {
             } else {
                 countDown = stationPopularity * ((rand() % 10) + 1);
                 unsigned int processedTrainLineIdx = beforeProcessing.front().first;
-                cout << processedTrainLineIdx << endl;
+               // cout << processedTrainLineIdx << endl;
                 unsigned int waitTime = t - prevTimeStamp[processedTrainLineIdx];
                 totalWaitTime[processedTrainLineIdx] += waitTime;
                 minWaitTime[processedTrainLineIdx] = min(minWaitTime[processedTrainLineIdx], waitTime);
@@ -215,28 +217,29 @@ int main(void) {
             countDown -= 1;
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        cout << 'd' << endl;
+        // cout << 'd' << endl;
 
         // Update master process.
-/*        unsigned int numTrains(beforeProcessing.size());
+        unsigned int numTrains(beforeProcessing.size());
         MPI_Send(&numTrains, 1, MPI_UINT32_T, 0, 0, centralComm);
-        MPI_Barrier(centralComm);
-
-        unsigned int *holdingTrains = static_cast<unsigned int *>(malloc(sizeof(unsigned int) * numTrains * 2));
-        unsigned int idx(0);
-        for (list<pair<unsigned int, unsigned int>>::iterator it = beforeProcessing.begin();
-             it != beforeProcessing.end(); it++) {
-            holdingTrains[idx++] = it->first;
-            holdingTrains[idx++] = it->second;
-        }
 
         if (numTrains > 0) {
+            unsigned int *holdingTrains = static_cast<unsigned int *>(malloc(sizeof(unsigned int) * numTrains * 2));
+            unsigned int idx(0);
+            for (list<pair<unsigned int, unsigned int>>::iterator it = beforeProcessing.begin();
+                 it != beforeProcessing.end(); it++) {
+                pair<unsigned int, unsigned int> train = *it;
+                // cout << train.first << "," << train.second << endl;
+                holdingTrains[idx++] = train.first;
+                holdingTrains[idx++] = train.second;
+            }
+
             MPI_Send(holdingTrains, numTrains * 2, MPI_UINT32_T, 0, 0, centralComm);
         }
         MPI_Barrier(centralComm);
 
-        free(holdingTrains);
-        holdingTrains = NULL; */
+/*        free(holdingTrains);
+        holdingTrains = NULL;*/
     }
 
     /*

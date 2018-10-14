@@ -322,12 +322,6 @@ int main() {
             if (totalNumInitialTrains[i] <= 0) {
                 continue;
             }
-
-            cout << "station" << i << " " << totalNumInitialTrains[i] << endl;
-            for (unsigned int j = 0; j < (totalNumInitialTrains[i] * 2); j++) {
-                cout << initialTrainsToSend[i][j] << " ";
-            }
-            cout << endl;
         }
 
         for (unsigned int i = 0; i < numStationSides; i++) {
@@ -356,7 +350,7 @@ int main() {
         initialStationSideNumTrains = NULL;
     }
 
-    /*
+
     ///////////////////////////
     // Receive Updates here //
     /////////////////////////
@@ -364,32 +358,43 @@ int main() {
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         trainLocations[i] = (unsigned int*) malloc(sizeof(unsigned int) * numTrainsPerLine[i]);
     }
-    unsigned int** receivedTrains = (unsigned int **) malloc(sizeof(unsigned int*) * numStationSides);
+    unsigned int** receivedTrains = (unsigned int **) malloc(sizeof(unsigned int*) * numChildProcesses);
 
     for (unsigned int t = 0; t < numTicks; t++) {
-        unsigned int* numUpdatesToReceive = (unsigned int*) malloc(sizeof(unsigned int) * numStationSides);
-        for (unsigned int i = 0; i < numStationSides; i++) {
+        unsigned int* numUpdatesToReceive = (unsigned int*) malloc(sizeof(unsigned int) * numChildProcesses);
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
             MPI_Recv(&numUpdatesToReceive[i], 1, MPI_UINT32_T, i, 0, centralComm, NULL);
         }
-        MPI_Barrier(centralComm);
 
-        for (unsigned int i = 0; i < numStationSides; i++) {
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
             if (numUpdatesToReceive[i] > 0) {
-                receivedTrains[i] = (unsigned int*) malloc(sizeof(unsigned int) * numUpdatesToReceive[i] * 2);
-                MPI_Recv(&receivedTrains[i], numUpdatesToReceive[i] * 2, MPI_UINT32_T, i, 0, centralComm, NULL);
+                receivedTrains[i] = (unsigned int *) malloc(sizeof(unsigned int) * numUpdatesToReceive[i] * 2);
+                MPI_Recv(receivedTrains[i], numUpdatesToReceive[i] * 2, MPI_UINT32_T, i, 0, centralComm, NULL);
+            }
+
+            for (unsigned int j = 0; j < numUpdatesToReceive[i] * 2; j+= 2) {
+            //    cout << receivedTrains[i][j] << "," << receivedTrains[i][j+1] << "    " << endl;
             }
 
             for (unsigned int j = 0; j < numUpdatesToReceive[i]; j++) {
                 unsigned int lineId = receivedTrains[i][j * 2];
-                unsigned int trainId = receivedTrains[i][j * 2];
-                trainLocations[lineId][trainId] = i;
+                unsigned int trainId = receivedTrains[i][j * 2 + 1];
+
+                if (i >= numStationSides && j > 0) {
+                    unsigned int linkIdx = i - numStationSides;
+                    pair<unsigned int, unsigned int> link = links[linkIdx];
+                    trainLocations[lineId][trainId] = link.first;
+                } else {
+                    trainLocations[lineId][trainId] = i;
+                }
             }
 
-            free(receivedTrains[i]);
+            // free(receivedTrains[i]);
         }
-        free(numUpdatesToReceive);
+        // free(numUpdatesToReceive);
 
         // Print tick updates
+        cout << t << ": ";
         for (unsigned int i = 0; i < NUM_LINES; i++) {
             for (unsigned int j = 0; (j < numTrainsPerLine[i]) && (j < ((t+1) * 2)); j++) {
                 bool atLink = trainLocations[i][j] >= numStationSides;
@@ -406,8 +411,20 @@ int main() {
                     }
                     printf(stationFormat, linePrefixes[i], j, stationId);
                 }
+                if (!((i == (NUM_LINES - 1)) && ((j == (numTrainsPerLine[j] - 1)) || (j == ((t+1) * 2 - 1))))) {
+                    cout << ", ";
+                }
             }
         }
+        cout << endl;
+        MPI_Barrier(centralComm);
+
+        unsigned int count = 0;
+        for (unsigned int i = 0; i < numStationSides; i++) {
+            count += numUpdatesToReceive[i];
+        }
+
+        // cout << count << "count" << endl;
     }
 
 
@@ -422,7 +439,7 @@ int main() {
     const unsigned int MAX_WAIT_TIME_IDX = 2;
     const unsigned int NUM_TRAINS_VISITED_IDX = 3;
 
-    unsigned int offset = NUM_WAIT_TIME_INFO * NUM_LINES;*/
+    unsigned int offset = NUM_WAIT_TIME_INFO * NUM_LINES;
 
 /*
     unsigned int* waitTimes = (unsigned int*) malloc(sizeof(unsigned int) * numStationSides * offset);
