@@ -59,17 +59,6 @@ int main() {
         }
     }
 
-/*
-
-    vector<vector<unsigned int>> linkCosts;
-    for (unsigned int i = 0; i < numStations; i++) {
-        linkCosts.push_back(vector<unsigned int>(numStations));
-        for (unsigned int j = 0; j < numStations; j++) {
-            cin >> linkCosts[i][j];
-        }
-    }
-*/
-
     vector<float> stationPopularities(numStations);
     {
         string rawStationPopularity;
@@ -176,18 +165,6 @@ int main() {
             stationSideNextNode[endStationId][i] = endStationId + numStations;
         }
     }
-
-/*    for (unsigned int i = 0; i < numStationSides; i++) {
-        for (unsigned int j = 0; j < NUM_LINES; j++) {
-            cout << beforeNodeInfo[i][j] << " ";
-        }
-        cout << endl;
-    }
-
-    cout << "linl" << endl;
-    for (unsigned int i = 0; i < links.size(); i++) {
-        cout << links[i].first << "," << links[i].second <<  " " << i + numStationSides  << endl;
-    }*/
 
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
@@ -372,10 +349,6 @@ int main() {
                 MPI_Recv(receivedTrains[i], numUpdatesToReceive[i] * 2, MPI_UINT32_T, i, 0, centralComm, NULL);
             }
 
-            for (unsigned int j = 0; j < numUpdatesToReceive[i] * 2; j+= 2) {
-            //    cout << receivedTrains[i][j] << "," << receivedTrains[i][j+1] << "    " << endl;
-            }
-
             for (unsigned int j = 0; j < numUpdatesToReceive[i]; j++) {
                 unsigned int lineId = receivedTrains[i][j * 2];
                 unsigned int trainId = receivedTrains[i][j * 2 + 1];
@@ -388,10 +361,7 @@ int main() {
                     trainLocations[lineId][trainId] = i;
                 }
             }
-
-            // free(receivedTrains[i]);
         }
-        // free(numUpdatesToReceive);
 
         // Print tick updates
         cout << t << ": ";
@@ -418,13 +388,6 @@ int main() {
         }
         cout << endl;
         MPI_Barrier(centralComm);
-
-        unsigned int count = 0;
-        for (unsigned int i = 0; i < numStationSides; i++) {
-            count += numUpdatesToReceive[i];
-        }
-
-        // cout << count << "count" << endl;
     }
 
 
@@ -441,46 +404,44 @@ int main() {
 
     unsigned int offset = NUM_WAIT_TIME_INFO * NUM_LINES;
 
-/*
-    unsigned int* waitTimes = (unsigned int*) malloc(sizeof(unsigned int) * numStationSides * offset);
+    unsigned int** waitTimes = (unsigned int**) malloc(sizeof(unsigned int*) * numStationSides);
     for (unsigned int i = 0; i < numStationSides; i++) {
-        MPI_Recv(&waitTimes[i * offset], offset, MPI_UINT32_T, i, 0, centralComm, NULL);
+        waitTimes[i] = (unsigned int *) malloc(sizeof(unsigned int) * offset);
     }
-    MPI_Barrier(centralComm); */
-    MPI_Finalize();
+
+    for (unsigned int i = 0; i < numStationSides; i++) {
+       MPI_Recv(waitTimes[i], offset, MPI_UINT32_T, i, 0, centralComm, NULL);
+    }
+    MPI_Barrier(centralComm);
+
     // free(errcodes);
-/*
     cout.setf(ios::fixed);
     cout << "\nAverage Wait Times:" << endl;
 
     for (unsigned int i = 0; i < NUM_LINES; i++) {
-        float avgMin(0), avgMax(0), avgAvg(0);
-        unsigned int count(0), numTrains(0);
+        float avgMin(0), avgMax(0), avgAvg(0), count(0), numTrains(0);
+
         for (unsigned int j = 0; j < line_stationIds[i].size(); j++) {
             unsigned int forwardId = line_stationIds[i][j];
-            unsigned int reverseId = reverseId + numStations;
+            unsigned int reverseId = forwardId + numStations;
+            unsigned int dataOffset = i * NUM_WAIT_TIME_INFO;
 
-            unsigned int forwardIdx = forwardId * offset + i * NUM_WAIT_TIME_INFO;
-            unsigned int reverseIdx = reverseId * offset + i * NUM_WAIT_TIME_INFO;
-
-            if (waitTimes[forwardIdx + NUM_TRAINS_VISITED_IDX] > 0) {
-                avgMin += waitTimes[forwardId + MIN_WAIT_TIME_IDX];
-                avgMax += waitTimes[forwardId + MAX_WAIT_TIME_IDX];
-                avgAvg += waitTimes[forwardId + TOTAL_WAIT_TIME_IDX];
-                count++;
-                numTrains += waitTimes[forwardId + NUM_TRAINS_VISITED_IDX];
+            if (waitTimes[forwardId][dataOffset + NUM_TRAINS_VISITED_IDX] > 0) {
+                avgMin += waitTimes[forwardId][dataOffset + MIN_WAIT_TIME_IDX];
+                avgMax += waitTimes[forwardId][dataOffset + MAX_WAIT_TIME_IDX];
+                avgAvg += waitTimes[forwardId][dataOffset + TOTAL_WAIT_TIME_IDX];
+                count += 1;
+                numTrains += waitTimes[forwardId][i * NUM_WAIT_TIME_INFO + NUM_TRAINS_VISITED_IDX];
             }
 
-
-            if (waitTimes[reverseIdx + NUM_TRAINS_VISITED_IDX] > 0) {
-                avgMin += waitTimes[reverseIdx + MIN_WAIT_TIME_IDX];
-                avgMax += waitTimes[reverseIdx + MAX_WAIT_TIME_IDX];
-                avgAvg += waitTimes[reverseIdx + TOTAL_WAIT_TIME_IDX];
-                count++;
-                numTrains += waitTimes[reverseIdx + NUM_TRAINS_VISITED_IDX];
+            if (waitTimes[reverseId][dataOffset + NUM_TRAINS_VISITED_IDX] > 0) {
+                avgMin += waitTimes[reverseId][dataOffset + MIN_WAIT_TIME_IDX];
+                avgMax += waitTimes[reverseId][dataOffset + MAX_WAIT_TIME_IDX];
+                avgAvg += waitTimes[reverseId][dataOffset + TOTAL_WAIT_TIME_IDX];
+                count += 1;
+                numTrains += waitTimes[reverseId][dataOffset + NUM_TRAINS_VISITED_IDX];
             }
         }
-
         avgMin /= count;
         avgMax /= count;
         avgAvg /= numTrains;
@@ -488,7 +449,7 @@ int main() {
              << setprecision(1) << avgAvg << ", " << setprecision(1) << avgMin << ", "
              << setprecision(1) << avgMax << endl;
     }
-    free(waitTimes);*/
+    MPI_Finalize();
 
     return EXIT_SUCCESS;
 }

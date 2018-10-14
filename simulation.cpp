@@ -28,7 +28,7 @@ int main(void) {
     // Receive the number of station sides
     unsigned int numStationSides(0);
     MPI_Bcast(&numStationSides, 1, MPI_UINT32_T, 0, centralComm);
-    // cout << childRank << " " << numStationSides << endl;
+
     // Get the node info. Different semantic meaning depending on whether it is a link or a stationSide. If it is
     // a link, then it represents (startStationSide, endStationSide, cost). Otherwise, it represents (link[green],
     // link[yellow], link[blue]), link[green] represents the rank of the link in the intracomm that will green
@@ -39,8 +39,6 @@ int main(void) {
     int prevNodes[3] = {-1,-1,-1};
     if (!isLink) {
         MPI_Recv(prevNodes, 3, MPI_INT, 0, 0, centralComm, NULL);
-        // cout << prevNodes[0] << " " << prevNodes[1] << " " << prevNodes[2] << endl;
-        // cout << info[0] << " " << info[1] << " " << info[2] << endl;
     }
 
     // Receive the number of ticks
@@ -67,7 +65,6 @@ int main(void) {
 
         if (numTrainsFromCentral > 0) {
             unsigned numTrainDataFromCentral = numTrainsFromCentral * 2;
-            // cout << numTrainDataFromCentral << " " << worldRank << endl;
             unsigned int *trainsFromCentral = (unsigned int *) malloc(sizeof(unsigned int) * numTrainDataFromCentral);
             MPI_Recv(trainsFromCentral, numTrainsFromCentral * 2, MPI_UINT32_T, 0, 0, centralComm, NULL);
 
@@ -82,24 +79,15 @@ int main(void) {
     }
     MPI_Barrier(centralComm);
 
-
-    if (!isLink) {
-        // cout << "next " << worldRank << " " << info[0] << " " << info[1] << " " << info[2];
-    }
-
-    if (!isLink) {
-        // cout << "before " << worldRank << " " << info[0] << " " << info[1] << " " << info[2];
-    }
-
     float countDown(0);
     unsigned int processedTrainInfo[2];
     unsigned int receivedTrainInfo[6];
     bool isProcessing = false;
 
-    unsigned int totalWaitTime[NUM_LINES] = {0};
-    unsigned int minWaitTime[NUM_LINES] = {0};
-    unsigned int maxWaitTime[NUM_LINES] = {0};
-    unsigned int numTrainsVisited[NUM_LINES] = {0};
+    unsigned int totalWaitTime[NUM_LINES] = {0,0,0};
+    unsigned int minWaitTime[NUM_LINES] = {0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF};
+    unsigned int maxWaitTime[NUM_LINES] = {0,0,0};
+    unsigned int numTrainsVisited[NUM_LINES] = {0,0,0};
     unsigned int prevTimeStamp[NUM_LINES] = {0,0,0};
 
     for (unsigned int t = 0; t < numTicks; t++) {
@@ -107,7 +95,6 @@ int main(void) {
 
         // if has previously finished processing
         if (isProcessing == true && countDown <= 0) {
-            // cout << "released" << endl;
             isProcessing = STATUS_NOT_PROCESSING;
             pair<unsigned int, unsigned int> processedTrain = beforeProcessing.front();
             processedTrainInfo[0] = processedTrain.first;
@@ -122,7 +109,6 @@ int main(void) {
             hasTrainToSend = true;
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        // cout << 'a' << endl;
 
         // Terminals and links will send their trains first. All stations will receive trains
         if (isLink) {
@@ -164,8 +150,6 @@ int main(void) {
             }
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        // cout << 'b' << endl;
-
 
         // non-terminal trains will now receive
         if (isLink) {
@@ -195,8 +179,6 @@ int main(void) {
         }
         MPI_Barrier(MPI_COMM_WORLD);
 
-        // cout << 'c' << endl;
-
         // Actual processing
         if ((isProcessing == false) && !beforeProcessing.empty()) {
             if (isLink) {
@@ -217,7 +199,6 @@ int main(void) {
             countDown -= 1;
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        // cout << 'd' << endl;
 
         // Update master process.
         unsigned int numTrains(beforeProcessing.size());
@@ -235,28 +216,33 @@ int main(void) {
             }
 
             MPI_Send(holdingTrains, numTrains * 2, MPI_UINT32_T, 0, 0, centralComm);
+            free(holdingTrains);
         }
         MPI_Barrier(centralComm);
-
-/*        free(holdingTrains);
-        holdingTrains = NULL;*/
     }
 
-    /*
+    const unsigned int NUM_DATA_TO_SEND_PER_LINE = 4;
+    unsigned int waitData[NUM_DATA_TO_SEND_PER_LINE * NUM_LINES] = {
+            0,0,0,0,
+            0,0,0,0,
+            0,0,0,0
+            };
+
     // update master process with values
     if (!isLink) {
-        const unsigned int NUM_DATA_TO_SEND_PER_LINE = 4;
-        unsigned int waitData[NUM_DATA_TO_SEND_PER_LINE * NUM_LINES];
         for (unsigned int i = 0; i < NUM_LINES; i++) {
+
             waitData[i * 4] = totalWaitTime[i];
             waitData[i * 4 + 1] = minWaitTime[i];
             waitData[i * 4 + 2] = maxWaitTime[i];
             waitData[i * 4 + 3] = numTrainsVisited[i];
         }
 
-        MPI_Send(&waitData, NUM_DATA_TO_SEND_PER_LINE * NUM_LINES, MPI_UINT32_T, 0, 0, centralComm);
+
+        MPI_Send(waitData, NUM_DATA_TO_SEND_PER_LINE * NUM_LINES, MPI_UINT32_T, 0, 0, centralComm);
     }
-    MPI_Barrier(centralComm);*/
+
+    MPI_Barrier(centralComm);
     MPI_Finalize();
 
     return EXIT_SUCCESS;
