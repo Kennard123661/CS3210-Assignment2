@@ -2,9 +2,12 @@
 #include <openmpi/mpi.h>
 #include <vector>
 #include <sstream>
+#include <stdlib.h> 
 #include <list>
+#include <cstdlib>  
 #include <mpi.h>
 #include <iomanip>
+
 
 using namespace std;
 
@@ -70,7 +73,7 @@ int main() {
         }
     }
 
-    vector<vector<unsigned int>> line_stationIds;
+    vector<vector<unsigned int> > line_stationIds;
     line_stationIds.resize(NUM_LINES);
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         vector<string> stationsInLine;
@@ -119,12 +122,13 @@ int main() {
         }
     }
 
-    vector<vector<unsigned int>> linksIndex(numStations);
+    vector<vector<unsigned int> > linksIndex(numStations);
     for (unsigned int i = 0; i < numStations; i++) {
         linksIndex[i].resize(numStations);
     }
 
-    std::vector<pair<unsigned int, unsigned int>> links;
+
+    std::vector<pair<unsigned int, unsigned int> > links;
     {
         unsigned int count(0);
         for (unsigned int i = 0; i < NUM_LINES; i++) {
@@ -275,59 +279,29 @@ int main() {
                             initialTrains[i].push_back(j * 2);
                         } else {
                             // Reverse side takes odd numbered trains
-                            initialTrains[i].push_back(j * 2  + 1);
+                            initialTrains[i].push_back((j * 2)  + 1);
                         }
                     }
                 }
             }
         }
 
-        // Set the initial trains to send
-        unsigned int** initialTrainsToSend = (unsigned int**) malloc(sizeof(unsigned int) * numStationSides);
-        for (unsigned int i = 0; i < numStationSides; i++) {
-
-            if (totalNumInitialTrains[i] <= 0) {
-                continue;
-            }
-
-            initialTrainsToSend[i] = (unsigned int*) malloc(sizeof(unsigned int) * totalNumInitialTrains[i] * 2);
-            for (unsigned j = 0; j < initialTrains[i].size(); j++) {
-                initialTrainsToSend[i][j] = initialTrains[i][j];
-            }
-        }
-        for (unsigned int i = 0; i < numStationSides; i++) {
-            if (totalNumInitialTrains[i] <= 0) {
-                continue;
-            }
-        }
-
+        // Send initial Trains over 
         for (unsigned int i = 0; i < numStationSides; i++) {
             if (totalNumInitialTrains[i] <= 0) {
                 continue;
             }
 
-            MPI_Send(initialTrainsToSend[i], initialTrains[i].size(), MPI_UINT32_T, i, 0, centralComm);
+            MPI_Send(&initialTrains[i][0], initialTrains[i].size(), MPI_UINT32_T, i, 0, centralComm);
         }
         MPI_Barrier(centralComm);
 
-
-        //////////////////////
-        // Clean Up Memory //
-        ////////////////////
-        for (unsigned int i = 0; i < numStationSides; i++) {
-            if (totalNumInitialTrains[i] <= 0) {
-                continue;
-            }
-            free(initialTrainsToSend[i]);
-        }
-        free(initialTrainsToSend);
-        initialTrainsToSend = NULL;
-
+        // Clean up memmory
         free(initialStationSideNumTrains);
         initialStationSideNumTrains = NULL;
     }
 
-
+    
     ///////////////////////////
     // Receive Updates here //
     /////////////////////////
@@ -336,24 +310,24 @@ int main() {
         trainLocations[i] = (unsigned int*) malloc(sizeof(unsigned int) * numTrainsPerLine[i]);
     }
     unsigned int** receivedTrains = (unsigned int **) malloc(sizeof(unsigned int*) * numChildProcesses);
+    unsigned int* numUpdatesToReceive = (unsigned int*) malloc(sizeof(unsigned int) * numChildProcesses);
 
     for (unsigned int t = 0; t < numTicks; t++) {
-        unsigned int* numUpdatesToReceive = (unsigned int*) malloc(sizeof(unsigned int) * numChildProcesses);
         for (unsigned int i = 0; i < numChildProcesses; i++) {
             MPI_Recv(&numUpdatesToReceive[i], 1, MPI_UINT32_T, i, 0, centralComm, NULL);
         }
 
         for (unsigned int i = 0; i < numChildProcesses; i++) {
             if (numUpdatesToReceive[i] > 0) {
-                receivedTrains[i] = (unsigned int *) malloc(sizeof(unsigned int) * numUpdatesToReceive[i] * 2);
-                MPI_Recv(receivedTrains[i], numUpdatesToReceive[i] * 2, MPI_UINT32_T, i, 0, centralComm, NULL);
+                unsigned int numReceive = numUpdatesToReceive[i] * 2;
+                receivedTrains[i] = (unsigned int *) malloc(sizeof(unsigned int) * numReceive);
+                MPI_Recv(receivedTrains[i], numReceive, MPI_UINT32_T, i, 0, centralComm, NULL);
             }
 
             for (unsigned int j = 0; j < numUpdatesToReceive[i]; j++) {
                 unsigned int lineId = receivedTrains[i][j * 2];
                 unsigned int trainId = receivedTrains[i][j * 2 + 1];
-
-                if (i >= numStationSides && j > 0) {
+                if ((i >= numStationSides) && (j > 0)) {
                     unsigned int linkIdx = i - numStationSides;
                     pair<unsigned int, unsigned int> link = links[linkIdx];
                     trainLocations[lineId][trainId] = link.first;
@@ -372,6 +346,11 @@ int main() {
                     unsigned int linkId = trainLocations[i][j] - numStationSides;
                     unsigned int startStationId = links[linkId].first;
                     unsigned int endStationId = links[linkId].second;
+                    if (startStationId >= numStations)
+                        startStationId -= numStations;
+
+                    if (endStationId >= numStations)
+                        endStationId -= numStations;
 
                     printf(linkFormat, linePrefixes[i], j, startStationId, endStationId);
                 } else {
@@ -388,9 +367,14 @@ int main() {
         }
         cout << endl;
         MPI_Barrier(centralComm);
+
+        // Clean up memory
+        for (unsigned int i = 0; i < numChildProcesses; i++) {
+            if (numUpdatesToReceive[i] > 0) {
+                free(receivedTrains[i]);
+            }
+        }
     }
-
-
 
     ////////////////////////
     // Final Update here //
@@ -417,7 +401,7 @@ int main() {
     // free(errcodes);
     cout.setf(ios::fixed);
     cout << "\nAverage Wait Times:" << endl;
-
+    
     for (unsigned int i = 0; i < NUM_LINES; i++) {
         float avgMin(0), avgMax(0), avgAvg(0), count(0), numTrains(0);
 
@@ -449,6 +433,7 @@ int main() {
              << setprecision(1) << avgAvg << ", " << setprecision(1) << avgMin << ", "
              << setprecision(1) << avgMax << endl;
     }
+    
     MPI_Finalize();
 
     return EXIT_SUCCESS;
